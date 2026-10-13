@@ -1,355 +1,209 @@
 
 import re
+import math
 import streamlit as st
 from collections import Counter, defaultdict
 
-# -------------------------------
-# 1. Page configuration
-# -------------------------------
 st.set_page_config(
     page_title="Next Word Prediction AI",
     page_icon="✨",
     layout="centered"
 )
 
-# -------------------------------
-# 2. Training dataset
-# -------------------------------
+# ---------------- TRAINING DATA ----------------
+
 DEFAULT_TEXT = """
-I am going to school.
-I am going to college.
-I am going to the market.
-I am going to learn python.
-I want to learn machine learning.
-I want to learn artificial intelligence.
-I want to learn data science.
-I like to read books.
-I like to listen to music.
-I like to play cricket.
-I like to play football.
-I love to learn new things.
-I love to learn programming.
-She is studying computer science.
-She is learning python programming.
-He is working on a project.
-He is learning a new language.
-We are building a web application.
-We are learning natural language processing.
-We are working on a machine learning project.
-They are playing cricket.
-They are studying computer science.
-The sun rises in the east.
-The sky is blue.
-The weather is very nice.
-Python is a popular programming language.
-Python is easy to learn.
-Python is used in data science.
+I am going to school every day.
+I am going to college to learn computer science.
+I am going to the market to buy fresh vegetables.
+I am going to learn Python programming.
+I love learning new things every day.
+I love machine learning and artificial intelligence.
+I love reading books and writing stories.
+The weather is very beautiful today.
+The weather is sunny and warm.
+Artificial intelligence helps people solve problems.
 Machine learning is a branch of artificial intelligence.
-Artificial intelligence helps computers perform tasks.
-Natural language processing works with human language.
-A language model predicts the next word.
-An n gram model learns patterns from text.
-A bigram model uses one previous word.
-A trigram model uses two previous words.
-A four gram model uses three previous words.
-The next word prediction system suggests words.
-The application uses a language model.
-The model learns from a training dataset.
-The user can enter any sentence.
-The website displays the predicted words.
-Students use computers to learn programming.
-Students write code to build applications.
-The internet connects people around the world.
-I am learning python every day.
-I want to build an advanced application.
-I want to create my own website.
-The computer processes the input text.
-The model calculates word probabilities.
-Good training data improves predictions.
-Technology makes communication easier.
+Natural language processing helps computers understand language.
+Python is a popular programming language.
+Python is easy to learn and use.
+Students learn programming by writing code.
+Students go to school to study different subjects.
+I want to build a useful application.
+I want to improve my programming skills.
+I want to create a website using Python.
+The next word prediction model predicts words from context.
+The language model learns patterns from training text.
+The computer processes text and predicts the next word.
+Deep learning is used in many artificial intelligence applications.
+Data science uses statistics and programming.
+I am happy to learn something new.
+I am studying computer science in college.
+We are going to build an interesting project.
+We are learning how to develop applications.
+You can use Python to create websites.
+You can learn artificial intelligence step by step.
 """
 
-# -------------------------------
-# 3. Text preprocessing
-# -------------------------------
 def tokenize(text):
     return re.findall(r"[a-z0-9']+", text.lower())
 
-
-# -------------------------------
-# 4. Train the N-gram model
-# -------------------------------
 def train_model(text, max_n=4):
     counts = {
         n: defaultdict(Counter)
         for n in range(1, max_n + 1)
     }
-
-    sentences = re.split(r"[.!?\n]+", text.lower())
-    token_count = 0
     vocabulary = set()
+    total_words = 0
 
-    for sentence in sentences:
+    for sentence in re.split(r"[.!?\n]+", text.lower()):
         words = tokenize(sentence)
-
         if not words:
             continue
 
-        token_count += len(words)
         vocabulary.update(words)
+        total_words += len(words)
 
-        # Add sentence-start markers
-        padded = ["<s>"] * (max_n - 1) + words
+        for i, word in enumerate(words):
+            for n in range(1, max_n + 1):
+                if n == 1:
+                    context = ()
+                else:
+                    if i < n - 1:
+                        continue
+                    context = tuple(words[i-n+1:i])
 
-        for n in range(1, max_n + 1):
-            for i in range(max_n - 1, len(padded)):
-                context = (
-                    tuple(padded[i - n + 1:i])
-                    if n > 1 else ()
-                )
-
-                word = padded[i]
                 counts[n][context][word] += 1
 
-    return counts, vocabulary, token_count
+    return counts, vocabulary, total_words
 
-
-# -------------------------------
-# 5. Predict the next word
-# -------------------------------
-def predict_next(text, model, vocabulary,
-                 max_n=4, top_k=5, alpha=0.1):
-
+def predict_next(text, model, vocabulary, max_n=4, top_k=5):
     words = tokenize(text)
-
     if not words:
-        context = ()
-    else:
-        context = tuple(words)
+        return []
 
-    # Back off from the longest available context
-    for n in range(min(max_n, len(context) + 1), 0, -1):
-
-        context_length = n - 1
-        current_context = (
-            context[-context_length:]
-            if context_length > 0 else ()
-        )
-
-        candidates = model[n].get(current_context)
-
+    # Try the longest available context first.
+    for n in range(min(max_n, len(words) + 1), 1, -1):
+        context = tuple(words[-(n-1):])
+        candidates = model[n].get(context)
         if candidates:
             break
     else:
-        candidates = Counter()
+        candidates = model[1].get((), Counter())
 
     if not candidates:
         candidates = model[1].get((), Counter())
-
-    # Never suggest a sentence-start marker
-    candidates = Counter({
-        word: count
-        for word, count in candidates.items()
-        if word != "<s>"
-    })
 
     if not candidates:
         return []
 
     total = sum(candidates.values())
     vocab_size = max(len(vocabulary), 1)
+    alpha = 0.1
 
     results = []
-
     for word, count in candidates.items():
-        probability = (
-            (count + alpha) /
-            (total + alpha * vocab_size)
+        score = (count + alpha) / (
+            total + alpha * vocab_size
         )
+        results.append({
+            "word": word,
+            "score": score,
+            "count": count
+        })
 
-        results.append((word, probability, count))
-
-    results.sort(
-        key=lambda item: item[1],
-        reverse=True
-    )
-
+    results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 
+# ---------------- WEBSITE ----------------
 
-# -------------------------------
-# 6. Sidebar settings
-# -------------------------------
-st.sidebar.title("Model Settings")
-
-max_n = st.sidebar.selectbox(
-    "Select N-gram model",
-    [1, 2, 3, 4],
-    index=3,
-    format_func=lambda n: {
-        1: "Unigram",
-        2: "Bigram",
-        3: "Trigram",
-        4: "Four-gram"
-    }[n]
-)
-
-top_k = st.sidebar.slider(
-    "Number of suggestions",
-    min_value=1,
-    max_value=10,
-    value=5
-)
-
-alpha = st.sidebar.select_slider(
-    "Smoothing strength",
-    options=[0.01, 0.05, 0.1, 0.5, 1.0],
-    value=0.1
-)
-
-uploaded_file = st.sidebar.file_uploader(
-    "Upload your own training text",
-    type=["txt"]
-)
-
-# -------------------------------
-# 7. Select training data
-# -------------------------------
-training_text = DEFAULT_TEXT
-
-if uploaded_file is not None:
-    try:
-        custom_text = uploaded_file.getvalue().decode("utf-8")
-
-        if len(custom_text.strip()) >= 30:
-            training_text = custom_text
-            st.sidebar.success("Custom dataset loaded.")
-        else:
-            st.sidebar.warning(
-                "The file is too short. Using sample data."
-            )
-    except UnicodeDecodeError:
-        st.sidebar.error("Upload a UTF-8 text file.")
-
-model, vocabulary, token_count = train_model(
-    training_text
-)
-
-# -------------------------------
-# 8. Main website interface
-# -------------------------------
 st.title("✨ Next Word Prediction AI")
-
 st.write(
-    "Type a sentence and let the N-gram language "
-    "model suggest possible next words."
+    "An upgraded NLP project using an N-gram language model."
 )
 
-col1, col2 = st.columns(2)
-
-col1.metric("Training words", token_count)
-col2.metric("Vocabulary size", len(vocabulary))
-
-if "sentence" not in st.session_state:
-    st.session_state.sentence = ""
-
-def add_word(word):
-    current = st.session_state.sentence.rstrip()
-    st.session_state.sentence = (
-        current + " " + word
-    ).strip()
-
-def clear_sentence():
-    st.session_state.sentence = ""
-
-sentence = st.text_area(
-    "Enter your sentence",
-    key="sentence",
-    height=120,
-    placeholder="Example: I am going to"
+st.info(
+    "Enter a sentence and the model will suggest likely next words "
+    "based on its training text."
 )
 
-predict_clicked = st.button(
-    "🔮 Predict Next Words",
-    type="primary",
-    use_container_width=True
+with st.sidebar:
+    st.header("Model Settings")
+    max_n = st.selectbox(
+        "N-gram model",
+        options=[2, 3, 4],
+        index=2,
+        format_func=lambda n: {
+            2: "Bigram (2-gram)",
+            3: "Trigram (3-gram)",
+            4: "Four-gram (4-gram)"
+        }[n]
+    )
+    top_k = st.slider("Number of suggestions", 1, 10, 5)
+
+    st.caption(
+        "Longer n-grams use more preceding words when a matching "
+        "pattern exists."
+    )
+
+st.subheader("Enter your sentence")
+
+user_text = st.text_area(
+    "Type here",
+    placeholder="For example: I am going to",
+    height=120
 )
 
-if predict_clicked:
-    if not sentence.strip():
+extra_text = st.text_area(
+    "Optional: Add your own training text",
+    placeholder="Enter extra sentences to teach the model new patterns...",
+    height=100
+)
+
+training_text = DEFAULT_TEXT + "\n" + extra_text
+model, vocabulary, total_words = train_model(
+    training_text,
+    max_n=4
+)
+
+if st.button("🔮 Predict Next Words", type="primary"):
+    if not user_text.strip():
         st.warning("Please enter a sentence first.")
     else:
-        predictions = predict_next(
-            sentence,
+        results = predict_next(
+            user_text,
             model,
             vocabulary,
             max_n=max_n,
-            top_k=top_k,
-            alpha=alpha
+            top_k=top_k
         )
 
         st.subheader("Suggested next words")
 
-        if predictions:
-            for index, (word, score, count) in enumerate(
-                predictions, start=1
-            ):
-                col1, col2 = st.columns([2, 3])
-
-                with col1:
-                    st.markdown(
-                        f"**{index}. {word}**"
-                    )
-
-                    st.button(
-                        f"Use {word}",
-                        key=f"suggestion_{index}_{word}",
-                        on_click=add_word,
-                        args=(word,)
-                    )
-
-                with col2:
-                    st.progress(
-                        min(score, 1.0),
-                        text=f"Score: {score:.2%}"
-                    )
-                    st.caption(
-                        f"Training count: {count}"
-                    )
-
-            st.caption(
-                "Scores are smoothed frequency-based "
-                "estimates, not guaranteed probabilities "
-                "of what a person will say."
-            )
+        if results:
+            for i, item in enumerate(results, start=1):
+                st.write(
+                    f"**{i}. {item['word']}** — "
+                    f"score: {item['score']:.4f} "
+                    f"(count: {item['count']})"
+                )
+                st.progress(
+                    min(item["score"] / max(
+                        results[0]["score"], 0.000001
+                    ), 1.0)
+                )
         else:
-            st.info(
-                "No suitable prediction found. "
-                "Try another sentence or upload a larger dataset."
-            )
-
-st.button(
-    "Clear sentence",
-    on_click=clear_sentence,
-    use_container_width=True
-)
-
-# -------------------------------
-# 9. Project explanation
-# -------------------------------
-with st.expander("How does this project work?"):
-    st.write("""
-    1. Text preprocessing converts text into word tokens.
-    2. The model counts unigram, bigram, trigram,
-       and four-gram sequences.
-    3. The model uses previous words as context.
-    4. Backoff selects shorter contexts if needed.
-    5. Additive smoothing adjusts the estimated scores.
-    6. The app displays the top suggested next words.
-    """)
+            st.warning("No prediction is available for this text.")
 
 st.divider()
+st.subheader("📊 Model Information")
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Training words", total_words)
+col2.metric("Vocabulary", len(vocabulary))
+col3.metric("N-gram order", max_n)
 
 st.caption(
-    "Built with Python, Streamlit and an N-gram Language Model."
+    "Academic project demonstration. Prediction quality depends "
+    "on the training text; suggestions are not guaranteed to be correct."
 )
